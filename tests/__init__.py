@@ -1,0 +1,2 @@
+"""MEDHA automated tests package."""
+

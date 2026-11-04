@@ -1,0 +1,157 @@
+import asyncio
+from typing import Any, Dict, List, Optional
+
+from models.schemas import ClaimStatus, EvidenceSourceType
+from models.verification_models import Claim, Evidence, RepairAttempt, ReviewFeedback, VerificationReport
+from utils.helpers import utcnow_iso
+from utils.logger import get_logger
+
+logger = get_logger("evidence_ledger")
+
+
+class EvidenceLedger:
+    """Centralized verifiable repository maintaining all claims, supporting evidence, and verification statuses."""
+
+    def __init__(self, task_id: str = ""):
+        self.task_id = task_id
+        self._claims: Dict[str, Claim] = {}
+        self._evidence: Dict[str, Evidence] = {}
+        self._claim_evidence_map: Dict[str, List[str]] = {}
+        self._lock = asyncio.Lock()
+
+    async def register_claim(self, claim: Claim) -> str:
+        """Register a claim in the ledger."""
+        async with self._lock:
+            self._claims[claim.claim_id] = claim
+            if claim.claim_id not in self._claim_evidence_map:
+                self._claim_evidence_map[claim.claim_id] = []
+            logger.debug(f"Registered claim [{claim.claim_id}] from [{claim.originating_role}]")
+            return claim.claim_id
+
+    async def register_claims_batch(self, claims: List[Claim]) -> List[str]:
+        """Register multiple claims."""
+        async with self._lock:
+            ids = []
+            for claim in claims:
+                self._claims[claim.claim_id] = claim
+                if claim.claim_id not in self._claim_evidence_map:
+                    self._claim_evidence_map[claim.claim_id] = []
+                ids.append(claim.claim_id)
+            return ids
+
+    async def register_evidence(
+        self,
+        evidence: Evidence,
+        associated_claim_ids: Optional[List[str]] = None,
+    ) -> str:
+        """Register a piece of evidence and link to any associated claims."""
+        async with self._lock:
+            self._evidence[evidence.evidence_id] = evidence
+            claim_ids = associated_claim_ids or evidence.associated_claim_ids or []
+            for c_id in claim_ids:
+                if c_id in self._claims:
+                    if evidence.evidence_id not in self._claim_evidence_map.setdefault(c_id, []):
+                        self._claim_evidence_map[c_id].append(evidence.evidence_id)
+                    if evidence.evidence_id not in self._claims[c_id].evidence_references:
+                        self._claims[c_id].evidence_references.append(evidence.evidence_id)
+            return evidence.evidence_id
+
+    async def link_claim_to_evidence(self, claim_id: str, evidence_id: str) -> None:
+        """Associate existing claim and evidence."""
+        async with self._lock:
+            if claim_id in self._claims and evidence_id in self._evidence:
+                if evidence_id not in self._claim_evidence_map.setdefault(claim_id, []):
+                    self._claim_evidence_map[claim_id].append(evidence_id)
+                if evidence_id not in self._claims[claim_id].evidence_references:
+                    self._claims[claim_id].evidence_references.append(evidence_id)
+
+    async def get_claim(self, claim_id: str) -> Optional[Claim]:
+        """Fetch a claim by ID."""
+        async with self._lock:
+            return self._claims.get(claim_id)
+
+    async def get_evidence_for_claim(self, claim_id: str) -> List[Evidence]:
+        """Retrieve all evidence items linked to a given claim."""
+        async with self._lock:
+            ev_ids = self._claim_evidence_map.get(claim_id, [])
+            return [self._evidence[e_id] for e_id in ev_ids if e_id in self._evidence]
+
+    async def update_claim_status(
+        self,
+        claim_id: str,
+        status: ClaimStatus,
+        reviewer_feedback: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> None:
+        """Update verification status and audit feedback of a claim."""
+        async with self._lock:
+            if claim_id in self._claims:
+                claim = self._claims[claim_id]
+                old_status = claim.status
+                claim.status = status
+                claim.reviewer_feedback = reviewer_feedback or claim.reviewer_feedback
+                claim.updated_at = utcnow_iso()
+                claim.verification_history.append({
+                    "from_status": old_status,
+                    "to_status": status,
+                    "feedback": reviewer_feedback,
+                    "notes": notes,
+                    "timestamp": utcnow_iso(),
+                })
+                logger.info(f"Claim [{claim_id}] status updated: {old_status} -> {status}")
+
+    async def get_all_claims(self, status: Optional[ClaimStatus] = None) -> List[Claim]:
+        """Retrieve all claims, optionally filtered by status."""
+        async with self._lock:
+            if status:
+                return [c for c in self._claims.values() if c.status == status]
+            return list(self._claims.values())
+
+    async def get_all_evidence(self) -> List[Evidence]:
+        """Retrieve all evidence stored in the ledger."""
+        async with self._lock:
+            return list(self._evidence.values())
+
+    async def generate_report(
+        self,
+        review_decisions: Optional[List[ReviewFeedback]] = None,
+        repair_history: Optional[List[RepairAttempt]] = None,
+    ) -> VerificationReport:
+        """Synthesize a complete verification audit report."""
+        async with self._lock:
+            claims = list(self._claims.values())
+            total = len(claims)
+            accepted = [c for c in claims if c.status == ClaimStatus.SUPPORTED]
+            rejected = [c for c in claims if c.status == ClaimStatus.REJECTED]
+            needs_rev = [c for c in claims if c.status == ClaimStatus.NEEDS_REVISION]
+            unverifiable = [c for c in claims if c.status == ClaimStatus.UNVERIFIABLE]
+
+            support_rate = round(len(accepted) / total, 3) if total > 0 else 0.0
+            unsupported_rate = round((len(rejected) + len(unverifiable)) / total, 3) if total > 0 else 0.0
+
+            repairs = repair_history or []
+            successful_repairs = sum(1 for r in repairs if r.status == ClaimStatus.SUPPORTED)
+            repair_success_rate = (
+                round(successful_repairs / len(repairs), 3) if repairs else 0.0
+            )
+
+            return VerificationReport(
+                total_claims=total,
+                accepted_claims=accepted,
+                rejected_claims=rejected,
+                needs_revision_claims=needs_rev,
+                unverifiable_claims=unverifiable,
+                review_decisions=review_decisions or [],
+                repair_history=repairs,
+                support_rate=support_rate,
+                unsupported_rate=unsupported_rate,
+                repair_success_rate=repair_success_rate,
+            )
+
+    async def clear(self) -> None:
+        """Reset ledger state."""
+        async with self._lock:
+            self._claims.clear()
+            self._evidence.clear()
+            self._claim_evidence_map.clear()
+

@@ -1,0 +1,18 @@
+# Environment configuration
+python-dotenv
+
+# Google Gemini API
+google-genai
+
+# Data validation and structured models
+pydantic
+
+# Async HTTP requests
+httpx
+
+# Model Context Protocol (MCP) SDK
+mcp
+
+# Testing
+pytest
+pytest-asyncio

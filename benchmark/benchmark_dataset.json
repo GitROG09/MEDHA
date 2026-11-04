@@ -1,0 +1,76 @@
+[
+  {
+    "id": "bench_01_tech_reasoning",
+    "domain": "Technical reasoning",
+    "prompt": "Evaluate whether Raft consensus can guarantee strict serializability in a geographically distributed network under asymmetric network partitions, and identify necessary mechanisms to prevent stale reads.",
+    "reference_criteria": [
+      "Leader leases or heartbeat read verification required to prevent stale reads from partitioned leaders",
+      "Raft ensures linearizability through commit index and term validation",
+      "Network partitions can isolate leader from quorum, triggering elections in the majority partition"
+    ],
+    "known_pitfalls": [
+      "Claiming Raft inherently prevents stale reads on followers without read-index or lease-read protocols",
+      "Asserting Raft operates without quorum under partitions"
+    ]
+  },
+  {
+    "id": "bench_02_software_arch",
+    "domain": "Software architecture",
+    "prompt": "Design a high-throughput financial ledger processing 100,000 transactions per second with strict ACID guarantees, zero double-spending, and multi-region disaster recovery.",
+    "reference_criteria": [
+      "Partitioning/sharding ledger accounts by shard key to avoid global lock contention",
+      "Two-phase commit or SAGA pattern across disparate account shards",
+      "Synchronous replication within region and asynchronous/semi-sync replication across regions",
+      "Explicit acknowledgment of physical storage throughput limits (IOPS/NVMe)"
+    ],
+    "known_pitfalls": [
+      "Claiming a single relational database instance can handle 100,000 ACID transactions/sec without sharding",
+      "Claiming zero latency cross-region synchronous replication"
+    ]
+  },
+  {
+    "id": "bench_03_analytical_reasoning",
+    "domain": "Analytical reasoning",
+    "prompt": "Analyze the trade-offs between LSM-Trees and B+ Trees for write-heavy workloads with 90% inserts and 10% point lookups, specifically addressing write amplification and space amplification.",
+    "reference_criteria": [
+      "LSM-Trees append sequentially to memtable and SSTables, drastically reducing random write IOPS",
+      "LSM-Trees suffer from write amplification during background compaction cycles",
+      "B+ Trees suffer from random disk writes and page splits on inserts",
+      "LSM point lookups can be optimized using Bloom filters"
+    ],
+    "known_pitfalls": [
+      "Claiming B+ Trees have lower write amplification than LSM trees on insert-heavy workloads",
+      "Claiming LSM trees eliminate read amplification without bloom filters"
+    ]
+  },
+  {
+    "id": "bench_04_logical_reasoning",
+    "domain": "Logical reasoning",
+    "prompt": "Explain why Byzantine Fault Tolerant (BFT) consensus requires 3f + 1 total nodes to tolerate f Byzantine nodes, whereas Crash Fault Tolerant (CFT) consensus requires only 2f + 1 nodes.",
+    "reference_criteria": [
+      "In CFT, failed nodes stop responding (crash-stop), so among N nodes, N - f must be operational",
+      "In BFT, Byzantine nodes can actively lie, collude, or send conflicting messages to different peers",
+      "To distinguish correct responses from Byzantine lies, the quorum must intersect with honest nodes: N - f > 2f, requiring N >= 3f + 1"
+    ],
+    "known_pitfalls": [
+      "Confusing crash fault tolerance with Byzantine fault tolerance",
+      "Failing to account for conflicting double-voting by malicious nodes"
+    ]
+  },
+  {
+    "id": "bench_05_general_knowledge",
+    "domain": "General knowledge",
+    "prompt": "What are the primary operational challenges and physical error thresholds for scaling superconducting transmon quantum processors to fault-tolerant logical qubits?",
+    "reference_criteria": [
+      "Surface code requires physical error rates below the fault-tolerant threshold (~1%)",
+      "Qubit coherence times (T1 and T2) limited by dielectric loss, quasiparticles, and flux noise",
+      "Cryogenic thermal load constraints at millikelvin dilution refrigerator stages",
+      "Crosstalk between microwave control lines and adjacent transmons"
+    ],
+    "known_pitfalls": [
+      "Claiming existing NISQ processors are already fault-tolerant",
+      "Confusing physical qubits with error-corrected logical qubits"
+    ]
+  }
+]
+
